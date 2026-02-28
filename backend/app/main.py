@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict
 from app.db import SessionLocal
 from app.schemas.import_orders import ImportOrdersResponse
 from app.schemas.orders import OrdersListResponse, OrdersSummaryResponse
+from app.schemas.payroll import CreatePayrollBatchesRequest, CreatePayrollBatchesResponse
 from app.schemas.rates import (
     ClientCreate,
     ClientOut,
@@ -21,6 +22,7 @@ from app.schemas.rates import (
 )
 from app.services.import_orders import import_orders_file
 from app.services.orders_query import list_orders, summarize_orders
+from app.services.payroll import confirm_payroll_batch, create_payroll_batches
 from app.services.rates import (
     create_contractor,
     create_client,
@@ -253,5 +255,28 @@ def post_recalculate_pay(payload: RecalculatePayRequest) -> RecalculatePayRespon
     db = SessionLocal()
     try:
         return recalculate_contractor_pay(db, payload)
+    finally:
+        db.close()
+
+
+@app.post("/api/payroll/batches")
+def post_payroll_batches(payload: CreatePayrollBatchesRequest) -> dict:
+    db = SessionLocal()
+    try:
+        return create_payroll_batches(db, payload)
+    finally:
+        db.close()
+
+
+@app.post("/api/payroll/batches/{batch_id}/confirm")
+def post_confirm_payroll_batch(batch_id: UUID) -> dict[str, str | int]:
+    db = SessionLocal()
+    try:
+        try:
+            return confirm_payroll_batch(db, batch_id)
+        except ValueError as e:
+            if str(e) == "batch not found":
+                raise HTTPException(status_code=404, detail=str(e)) from e
+            raise HTTPException(status_code=400, detail=str(e)) from e
     finally:
         db.close()
