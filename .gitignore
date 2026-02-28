@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.venv/
+venv/
+.env
+
+# Alembic
+alembic/versions/__pycache__/
+
+# Node
+node_modules/
+dist/
+
+# OS
+.DS_Store
+
+# Logs
+*.log
