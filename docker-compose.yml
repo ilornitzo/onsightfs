@@ -1,0 +1,14 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: onsightfs
+      POSTGRES_USER: onsightfs
+      POSTGRES_PASSWORD: onsightfs
+    ports:
+      - "54322:5432"
+    volumes:
+      - onsightfs_pgdata:/var/lib/postgresql/data
+
+volumes:
+  onsightfs_pgdata:
