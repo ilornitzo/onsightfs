@@ -44,15 +44,15 @@ def _build_filters(
             )
         )
     if contractor:
-        filters.append(Order.contractor_name_raw == contractor)
+        filters.append(Order.contractor_name_raw.ilike(f"%{contractor}%"))
     if client:
-        filters.append(Order.client_name_raw == client)
+        filters.append(Order.client_name_raw.ilike(f"%{client}%"))
     if county:
-        filters.append(Order.county == county)
+        filters.append(Order.county.ilike(f"%{county}%"))
     if state:
-        filters.append(Order.state == state)
+        filters.append(Order.state.ilike(f"%{state}%"))
     if city:
-        filters.append(Order.city == city)
+        filters.append(Order.city.ilike(f"%{city}%"))
     submitted_from_date = _coerce_bound_date(submitted_from)
     submitted_to_date = _coerce_bound_date(submitted_to)
     if submitted_from_date:
@@ -142,10 +142,11 @@ def list_orders(
             Order.missing_paid_in_rate.label("missing_paid_in_rate"),
             Order.conflicting_paid_in_rate.label("conflicting_paid_in_rate"),
             Order.paid_out_status.label("paid_out_status"),
+            Order.paid_in_status.label("paid_in_status"),
             Order.billed_status.label("billed_status"),
         )
         .where(*filters)
-        .order_by(_parse_sort(sort))
+        .order_by(_parse_sort(sort), Order.order_uid.asc())
         .limit(limit)
         .offset(offset)
     )

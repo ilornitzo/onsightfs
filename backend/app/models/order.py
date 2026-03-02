@@ -16,7 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.db import Base
-from app.models.enums import BilledStatus, PaidOutStatus
+from app.models.enums import BilledStatus, PaidInStatus, PaidOutStatus
 
 
 class Order(Base):
@@ -73,6 +73,7 @@ class Order(Base):
     client_pay_amount = Column(Numeric(12, 2), nullable=True)
     contractor_pay_amount = Column(Numeric(12, 2), nullable=True)
     paid_out_status = Column(Enum(PaidOutStatus, native_enum=False), nullable=False, default=PaidOutStatus.unpaid)
+    paid_in_status = Column(Enum(PaidInStatus, native_enum=False), nullable=False, default=PaidInStatus.unpaid)
     billed_status = Column(Enum(BilledStatus, native_enum=False), nullable=False, default=BilledStatus.unbilled)
     missing_paid_out_rate = Column(Boolean, nullable=False, default=False)
     conflicting_paid_out_rate = Column(Boolean, nullable=False, default=False)

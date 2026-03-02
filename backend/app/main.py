@@ -4,6 +4,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
@@ -22,6 +23,8 @@ from app.schemas.rates import (
 )
 from app.services.import_orders import import_orders_file
 from app.services.orders_query import list_orders, summarize_orders
+from app.services.paid_in import set_order_paid_in_status
+from app.services.paid_out import set_order_paid_out_status
 from app.services.payroll import confirm_payroll_batch, create_payroll_batches
 from app.services.rates import (
     create_contractor,
@@ -36,6 +39,13 @@ from app.services.rates import (
 from app.services.recalculate_pay import recalculate_contractor_pay
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class ContractorCreate(BaseModel):
@@ -55,6 +65,10 @@ class ContractorOut(BaseModel):
     email: str | None = None
     phone: str | None = None
     active: bool
+
+
+class PaidInUpdateRequest(BaseModel):
+    paid: bool
 
 
 @app.get("/health")
@@ -278,5 +292,29 @@ def post_confirm_payroll_batch(batch_id: UUID) -> dict[str, str | int]:
             if str(e) == "batch not found":
                 raise HTTPException(status_code=404, detail=str(e)) from e
             raise HTTPException(status_code=400, detail=str(e)) from e
+    finally:
+        db.close()
+
+
+@app.post("/api/orders/{order_id}/paid_in")
+def post_order_paid_in(order_id: UUID, payload: PaidInUpdateRequest) -> dict[str, str]:
+    db = SessionLocal()
+    try:
+        try:
+            return set_order_paid_in_status(db, order_id, payload.paid)
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
+    finally:
+        db.close()
+
+
+@app.post("/api/orders/{order_id}/paid_out")
+def post_order_paid_out(order_id: UUID, payload: PaidInUpdateRequest) -> dict[str, str]:
+    db = SessionLocal()
+    try:
+        try:
+            return set_order_paid_out_status(db, order_id, payload.paid)
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
     finally:
         db.close()

@@ -23,6 +23,7 @@ class OrderRow(BaseModel):
     missing_paid_in_rate: bool
     conflicting_paid_in_rate: bool
     paid_out_status: str
+    paid_in_status: str
     billed_status: str
 
 

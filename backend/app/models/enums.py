@@ -6,6 +6,11 @@ class PaidOutStatus(str, enum.Enum):
     paid = "paid"
 
 
+class PaidInStatus(str, enum.Enum):
+    unpaid = "unpaid"
+    paid = "paid"
+
+
 class BilledStatus(str, enum.Enum):
     unbilled = "unbilled"
     billed = "billed"

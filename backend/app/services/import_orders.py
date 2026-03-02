@@ -18,7 +18,7 @@ HEADER_FIELD_MAP: dict[str, str | None] = {
     "ID": "order_uid",
     "OrderNumber": "order_number",
     "WorkCode": "work_code",
-    "Client": "client_name_raw",
+    "Client": "requestor_name_raw",
     "Inspector": "contractor_name_raw",
     "InspectorUserID": "contractor_user_id",
     "CountyName": "county",
@@ -321,10 +321,16 @@ def import_orders_file(db: Session, file_obj: BinaryIO, filename: str | None) ->
                 order_data: dict[str, Any] = {
                     "import_batch_id": import_batch.id,
                     "order_uid": order_uid,
+                    "client_name_raw": _coerce_field(
+                        "client_name_raw",
+                        _get_by_header(row, header_map, "Source"),
+                    ),
                 }
 
                 for header_name, field_name in HEADER_FIELD_MAP.items():
                     if field_name is None or field_name == "order_uid":
+                        continue
+                    if field_name == "requestor_name_raw" and not hasattr(Order, "requestor_name_raw"):
                         continue
                     raw_value = _get_by_header(row, header_map, header_name)
                     order_data[field_name] = _coerce_field(field_name, raw_value)
