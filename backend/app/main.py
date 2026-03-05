@@ -3,13 +3,14 @@ from datetime import date
 from typing import Literal
 from uuid import UUID
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict
 
 from app.db import SessionLocal
 from app.schemas.import_orders import ImportOrdersResponse
+from app.schemas.contractor_profile import ContractorProfileOut, ContractorProfileUpsert
 from app.schemas.orders import OrdersListResponse, OrdersSummaryResponse
 from app.schemas.payroll import CreatePayrollBatchesRequest, CreatePayrollBatchesResponse
 from app.schemas.rates import (
@@ -22,10 +23,19 @@ from app.schemas.rates import (
     RecalculatePayResponse,
 )
 from app.services.import_orders import import_orders_file
+from app.services.amounts import update_order_amounts
 from app.services.orders_query import list_orders, summarize_orders
+from app.services.contractor_profile import get_contractor_profile, upsert_contractor_profile
 from app.services.paid_in import set_order_paid_in_status
 from app.services.paid_out import set_order_paid_out_status
+from app.services.pdf_exports import generate_contractor_pay_pdf, generate_invoice_pdf
+from app.services.onboarding_parse import parse_onboarding_file
 from app.services.payroll import confirm_payroll_batch, create_payroll_batches
+from app.services.contractor_documents import (
+    download_document_file,
+    list_contractor_documents,
+    save_contractor_document,
+)
 from app.services.rates import (
     create_contractor,
     create_client,
@@ -71,9 +81,122 @@ class PaidInUpdateRequest(BaseModel):
     paid: bool
 
 
+class AmountsUpdateRequest(BaseModel):
+    client_pay_amount: str | float | int | None = None
+    contractor_pay_amount: str | float | int | None = None
+
+
+class PdfExportRequest(BaseModel):
+    order_ids: list[UUID]
+
+
+class ContractorDocumentOut(BaseModel):
+    id: UUID
+    document_type: str
+    file_name: str
+    created_at: str | None = None
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/api/contractors/onboarding/parse")
+async def post_parse_contractor_onboarding(file: UploadFile | None = File(None)) -> dict[str, str]:
+    if file is None:
+        raise HTTPException(status_code=400, detail="file is required")
+
+    filename = file.filename or ""
+    lower_name = filename.lower()
+    supported_suffixes = (".pdf", ".csv", ".xlsx")
+    if not lower_name.endswith(supported_suffixes):
+        raise HTTPException(status_code=400, detail="file must be PDF, CSV, or XLSX")
+
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="file is empty")
+
+    try:
+        parsed = parse_onboarding_file(file_bytes, filename)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"failed to parse onboarding file: {e}") from e
+
+    return {
+        "name": str(parsed.get("name", "")),
+        "business_name": str(parsed.get("business_name", "")),
+        "email": str(parsed.get("email", "")),
+        "phone": str(parsed.get("phone", "")),
+        "address": str(parsed.get("address", "")),
+        "dob": str(parsed.get("dob", "")),
+        "ein_or_ssn": str(parsed.get("ssn_or_ein", parsed.get("ein_or_ssn", ""))),
+        "bank_routing": str(parsed.get("bank_routing_number", parsed.get("bank_routing", ""))),
+        "bank_account": str(parsed.get("bank_account_number", parsed.get("bank_account", ""))),
+        "notes": str(parsed.get("notes", "")),
+    }
+
+
+@app.post("/api/contractors/{contractor_id}/documents", response_model=ContractorDocumentOut)
+async def post_contractor_document(
+    contractor_id: UUID,
+    file: UploadFile | None = File(None),
+    document_type: str | None = Form(None),
+) -> ContractorDocumentOut:
+    if file is None:
+        raise HTTPException(status_code=400, detail="file is required")
+    if not document_type:
+        raise HTTPException(status_code=400, detail="document_type is required")
+
+    db = SessionLocal()
+    try:
+        try:
+            file_bytes = await file.read()
+            result = save_contractor_document(
+                db=db,
+                contractor_id=contractor_id,
+                document_type=document_type,
+                file_name=file.filename or "upload.bin",
+                mime_type=file.content_type,
+                file_bytes=file_bytes,
+            )
+            return ContractorDocumentOut(**result)
+        except ValueError as e:
+            message = str(e)
+            if message == "contractor not found":
+                raise HTTPException(status_code=404, detail=message) from e
+            raise HTTPException(status_code=400, detail=message) from e
+    finally:
+        db.close()
+
+
+@app.get("/api/contractors/{contractor_id}/documents", response_model=list[ContractorDocumentOut])
+def get_contractor_documents(contractor_id: UUID) -> list[ContractorDocumentOut]:
+    db = SessionLocal()
+    try:
+        try:
+            docs = list_contractor_documents(db=db, contractor_id=contractor_id)
+            return [ContractorDocumentOut(**doc) for doc in docs]
+        except ValueError as e:
+            if str(e) == "contractor not found":
+                raise HTTPException(status_code=404, detail=str(e)) from e
+            raise HTTPException(status_code=400, detail=str(e)) from e
+    finally:
+        db.close()
+
+
+@app.get("/api/documents/{document_id}/download")
+def get_document_download(document_id: UUID) -> FileResponse:
+    db = SessionLocal()
+    try:
+        try:
+            file_path, file_name, media_type = download_document_file(db=db, document_id=document_id)
+            return FileResponse(path=file_path, filename=file_name, media_type=media_type)
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
+    finally:
+        db.close()
 
 
 @app.post("/api/import/orders", response_model=ImportOrdersResponse)
@@ -215,6 +338,27 @@ def post_contractor(payload: ContractorCreate) -> ContractorOut:
         db.close()
 
 
+@app.get("/api/contractors/{contractor_id}/profile", response_model=ContractorProfileOut)
+def get_contractor_onboarding_profile(contractor_id: UUID) -> ContractorProfileOut:
+    db = SessionLocal()
+    try:
+        return get_contractor_profile(db, contractor_id)
+    finally:
+        db.close()
+
+
+@app.put("/api/contractors/{contractor_id}/profile", response_model=ContractorProfileOut)
+def put_contractor_onboarding_profile(contractor_id: UUID, payload: ContractorProfileUpsert) -> ContractorProfileOut:
+    db = SessionLocal()
+    try:
+        try:
+            return upsert_contractor_profile(db, contractor_id, payload)
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
+    finally:
+        db.close()
+
+
 @app.get("/api/contractors/pay_rates", response_model=list[ContractorPayRateOut])
 def get_contractor_pay_rates(
     contractor_id: UUID | None = None,
@@ -316,5 +460,50 @@ def post_order_paid_out(order_id: UUID, payload: PaidInUpdateRequest) -> dict[st
             return set_order_paid_out_status(db, order_id, payload.paid)
         except ValueError as e:
             raise HTTPException(status_code=404, detail=str(e)) from e
+    finally:
+        db.close()
+
+
+@app.patch("/api/orders/{order_id}/amounts")
+def patch_order_amounts(order_id: UUID, payload: AmountsUpdateRequest) -> dict[str, str | None]:
+    db = SessionLocal()
+    try:
+        try:
+            return update_order_amounts(
+                db,
+                order_id=order_id,
+                client_pay_amount=payload.client_pay_amount,
+                contractor_pay_amount=payload.contractor_pay_amount,
+            )
+        except ValueError as e:
+            if str(e) == "order not found":
+                raise HTTPException(status_code=404, detail=str(e)) from e
+            raise HTTPException(status_code=422, detail=str(e)) from e
+    finally:
+        db.close()
+
+
+@app.post("/api/exports/invoice.pdf")
+def post_invoice_pdf(payload: PdfExportRequest) -> Response:
+    db = SessionLocal()
+    try:
+        try:
+            pdf_bytes = generate_invoice_pdf(db, payload.order_ids)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        return Response(content=pdf_bytes, media_type="application/pdf")
+    finally:
+        db.close()
+
+
+@app.post("/api/exports/contractor_pay.pdf")
+def post_contractor_pay_pdf(payload: PdfExportRequest) -> Response:
+    db = SessionLocal()
+    try:
+        try:
+            pdf_bytes = generate_contractor_pay_pdf(db, payload.order_ids)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        return Response(content=pdf_bytes, media_type="application/pdf")
     finally:
         db.close()

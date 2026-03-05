@@ -24,6 +24,7 @@ class PayrollBatchStatus(str, enum.Enum):
 
 
 class DocumentType(str, enum.Enum):
+    id = "id"
     w9 = "w9"
     insurance = "insurance"
     contract = "contract"

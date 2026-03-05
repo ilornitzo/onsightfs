@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import os
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, BinaryIO
 
@@ -69,6 +69,14 @@ DATETIME_FIELDS = {
 }
 DECIMAL_FIELDS = {"client_pay_amount", "latitude", "longitude"}
 BOOLEAN_FIELDS = {"vacant", "photo_required"}
+EXCEL_SERIAL_MIN = 30000
+EXCEL_SERIAL_MAX = 80000
+
+
+def _excel_serial_to_datetime(serial: float) -> datetime:
+    # Excel's 1900-date system epoch, accounting for Excel's leap-year bug behavior.
+    excel_epoch = datetime(1899, 12, 30)
+    return excel_epoch + timedelta(days=serial)
 
 
 def _normalize_header(value: Any) -> str:
@@ -127,6 +135,11 @@ def parse_date(value: Any) -> date | None:
         return value.date()
     if isinstance(value, date):
         return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        numeric_value = float(value)
+        if EXCEL_SERIAL_MIN <= numeric_value <= EXCEL_SERIAL_MAX:
+            return _excel_serial_to_datetime(numeric_value).date()
+        return None
 
     text = str(value).strip()
     if not text:
@@ -147,6 +160,11 @@ def parse_datetime(value: Any) -> datetime | None:
         return value
     if isinstance(value, date):
         return datetime.combine(value, time.min)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        numeric_value = float(value)
+        if EXCEL_SERIAL_MIN <= numeric_value <= EXCEL_SERIAL_MAX:
+            return _excel_serial_to_datetime(numeric_value)
+        return None
 
     text = str(value).strip()
     if not text:
