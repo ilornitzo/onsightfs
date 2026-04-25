@@ -54,7 +54,7 @@ from app.services.recalculate_pay import recalculate_contractor_pay
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "https://onsightfs.netlify.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
