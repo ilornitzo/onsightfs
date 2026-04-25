@@ -2,6 +2,7 @@ import traceback
 from datetime import date
 from typing import Literal
 from uuid import UUID
+import uuid
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,9 +10,11 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict
 
 from app.db import SessionLocal
+from app.models.enums import BilledStatus, PaidInStatus, PaidOutStatus
+from app.models.order import Order
 from app.schemas.import_orders import ImportOrdersResponse
 from app.schemas.contractor_profile import ContractorProfileOut, ContractorProfileUpsert
-from app.schemas.orders import OrdersListResponse, OrdersSummaryResponse
+from app.schemas.orders import ManualOrderCreate, OrderRow, OrdersListResponse, OrdersSummaryResponse
 from app.schemas.payroll import CreatePayrollBatchesRequest, CreatePayrollBatchesResponse
 from app.schemas.rates import (
     ClientCreate,
@@ -97,9 +100,21 @@ class ContractorDocumentOut(BaseModel):
     created_at: str | None = None
 
 
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/api/auth/login")
+def post_login(payload: LoginRequest) -> dict[str, str | bool]:
+    if payload.username == "onsight" and payload.password == "Wilnitz0!":
+        return {"success": True, "token": "onsight-session"}
+    raise HTTPException(status_code=401, detail="invalid credentials")
 
 
 @app.post("/api/contractors/onboarding/parse")
@@ -216,6 +231,60 @@ async def import_orders(file: UploadFile = File(...)) -> ImportOrdersResponse:
                     }
                 },
             )
+    finally:
+        db.close()
+
+
+@app.post("/api/orders/manual", response_model=OrderRow)
+def post_manual_order(payload: ManualOrderCreate) -> OrderRow:
+    db = SessionLocal()
+    try:
+        order = Order(
+            order_uid=str(uuid.uuid4()),
+            order_number=payload.order_number,
+            contractor_name_raw=payload.contractor_name_raw,
+            client_name_raw=payload.client_name_raw,
+            county=payload.county,
+            city=payload.city,
+            address=payload.address,
+            zip=payload.zip,
+            client_pay_amount=payload.client_pay_amount,
+            contractor_pay_amount=payload.contractor_pay_amount,
+            submitted_to_client_at=payload.submitted_to_client_at,
+            due_date=payload.due_date,
+            notes=payload.notes,
+            is_manual_expense=True,
+            paid_in_status=PaidInStatus.unpaid,
+            paid_out_status=PaidOutStatus.unpaid,
+            billed_status=BilledStatus.unbilled,
+        )
+        db.add(order)
+        db.commit()
+        db.refresh(order)
+        return OrderRow(
+            id=str(order.id),
+            order_uid=order.order_uid,
+            order_number=order.order_number,
+            contractor_name_raw=order.contractor_name_raw,
+            client_name_raw=order.client_name_raw,
+            county=order.county,
+            city=order.city,
+            address=order.address,
+            zip=order.zip,
+            client_pay_amount=order.client_pay_amount,
+            contractor_pay_amount=order.contractor_pay_amount,
+            submitted_to_client_at=order.submitted_to_client_at,
+            due_date=order.due_date,
+            missing_paid_out_rate=order.missing_paid_out_rate,
+            conflicting_paid_out_rate=order.conflicting_paid_out_rate,
+            missing_paid_in_rate=order.missing_paid_in_rate,
+            conflicting_paid_in_rate=order.conflicting_paid_in_rate,
+            paid_out_status=order.paid_out_status.value,
+            paid_in_status=order.paid_in_status.value,
+            billed_status=order.billed_status.value,
+            is_manual_expense=order.is_manual_expense,
+            notes=order.notes,
+        )
     finally:
         db.close()
 

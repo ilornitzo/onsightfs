@@ -131,6 +131,7 @@ def generate_invoice_pdf(db: Session, order_ids: list[UUID]) -> bytes:
         rows.append(
             [
                 _submitted_date_text(order),
+                str(order.order_number or ""),
                 str(order.address or ""),
                 str(order.city or ""),
                 str(order.county or ""),
@@ -143,7 +144,7 @@ def generate_invoice_pdf(db: Session, order_ids: list[UUID]) -> bytes:
         title="INVOICE",
         who_label="Client",
         who_value=client_name,
-        headers=["SubmittedToClient", "Address", "City", "County", "Zip", "Amount"],
+        headers=["SubmittedToClient", "Order Number", "Address", "City", "County", "Zip", "Amount"],
         rows=rows,
         total=total,
     )
@@ -171,6 +172,7 @@ def generate_contractor_pay_pdf(db: Session, order_ids: list[UUID]) -> bytes:
         rows.append(
             [
                 _submitted_date_text(order),
+                str(order.order_number or ""),
                 str(order.address or ""),
                 str(order.city or ""),
                 str(order.county or ""),
@@ -183,7 +185,7 @@ def generate_contractor_pay_pdf(db: Session, order_ids: list[UUID]) -> bytes:
         title="CONTRACTOR PAY STATEMENT",
         who_label="Contractor",
         who_value=contractor_name,
-        headers=["SubmittedToClient", "Address", "City", "County", "Zip", "Amount"],
+        headers=["SubmittedToClient", "Order Number", "Address", "City", "County", "Zip", "Amount"],
         rows=rows,
         total=total,
     )

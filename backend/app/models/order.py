@@ -24,10 +24,11 @@ class Order(Base):
     __table_args__ = (
         Index("ix_orders_order_uid", "order_uid", unique=True),
         Index("ix_orders_client_name_raw_order_number", "client_name_raw", "order_number"),
+        Index("ix_orders_is_manual_expense", "is_manual_expense"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
-    import_batch_id = Column(UUID(as_uuid=True), ForeignKey("import_batches.id"), nullable=False)
+    import_batch_id = Column(UUID(as_uuid=True), ForeignKey("import_batches.id"), nullable=True)
     order_uid = Column(String, nullable=False)
     order_number = Column(String, nullable=True)
     work_code = Column(String, nullable=True)
@@ -79,6 +80,8 @@ class Order(Base):
     conflicting_paid_out_rate = Column(Boolean, nullable=False, default=False)
     missing_paid_in_rate = Column(Boolean, nullable=False, default=False)
     conflicting_paid_in_rate = Column(Boolean, nullable=False, default=False)
+    is_manual_expense = Column(Boolean, nullable=False, default=False)
+    notes = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()

@@ -4,6 +4,21 @@ from decimal import Decimal
 from pydantic import BaseModel
 
 
+class ManualOrderCreate(BaseModel):
+    order_number: str | None = None
+    contractor_name_raw: str | None = None
+    client_name_raw: str | None = None
+    county: str | None = None
+    city: str | None = None
+    address: str | None = None
+    zip: str | None = None
+    client_pay_amount: Decimal | None = None
+    contractor_pay_amount: Decimal | None = None
+    submitted_to_client_at: datetime | None = None
+    due_date: date | None = None
+    notes: str | None = None
+
+
 class OrderRow(BaseModel):
     contractor_name_raw: str | None = None
     client_name_raw: str | None = None
@@ -25,6 +40,8 @@ class OrderRow(BaseModel):
     paid_out_status: str
     paid_in_status: str
     billed_status: str
+    is_manual_expense: bool = False
+    notes: str | None = None
 
 
 class OrdersListResponse(BaseModel):

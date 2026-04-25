@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 function App() {
+  const AUTH_TOKEN_STORAGE_KEY = 'onsight_auth_token'
   const ZONES_STORAGE_KEY = 'onsight_zones_v1'
   const LAYOUT_STORAGE_KEY = 'onsight_layout_v1'
   const ORDERS_PAGE_LIMIT = 100
@@ -22,6 +23,20 @@ function App() {
     city: '',
     clientPrice: '',
     contractorPrice: '',
+  })
+  const createManualExpenseForm = () => ({
+    order_number: '',
+    contractor_name_raw: '',
+    client_name_raw: '',
+    county: '',
+    city: '',
+    address: '',
+    zip: '',
+    client_pay_amount: '',
+    contractor_pay_amount: '',
+    submitted_to_client_at: '',
+    due_date: '',
+    notes: '',
   })
   const loadZonesFromStorage = () => {
     if (typeof window === 'undefined') return []
@@ -71,6 +86,14 @@ function App() {
   }
 
   const [orders, setOrders] = useState([])
+  const [authToken, setAuthToken] = useState(() => {
+    if (typeof window === 'undefined') return ''
+    return window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || ''
+  })
+  const [loginUsername, setLoginUsername] = useState('')
+  const [loginPassword, setLoginPassword] = useState('')
+  const [loginError, setLoginError] = useState('')
+  const [loggingIn, setLoggingIn] = useState(false)
   const [ordersTotalCount, setOrdersTotalCount] = useState(0)
   const [ordersOffset, setOrdersOffset] = useState(0)
   const [hasMoreOrders, setHasMoreOrders] = useState(true)
@@ -90,6 +113,10 @@ function App() {
   const [importing, setImporting] = useState(false)
   const [bulkUpdateMessage, setBulkUpdateMessage] = useState('')
   const [bulkUpdating, setBulkUpdating] = useState(false)
+  const [showManualExpenseForm, setShowManualExpenseForm] = useState(false)
+  const [manualExpenseForm, setManualExpenseForm] = useState(createManualExpenseForm)
+  const [manualExpenseMessage, setManualExpenseMessage] = useState('')
+  const [savingManualExpense, setSavingManualExpense] = useState(false)
   const [editingCell, setEditingCell] = useState(null)
   const [editingValue, setEditingValue] = useState('')
   const [editingError, setEditingError] = useState('')
@@ -239,6 +266,50 @@ function App() {
     return params
   }
 
+  const handleLogin = async (event) => {
+    event.preventDefault()
+    setLoggingIn(true)
+    setLoginError('')
+    try {
+      const response = await fetch('http://localhost:5090/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: loginUsername,
+          password: loginPassword,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Invalid login')
+      }
+
+      const data = await response.json()
+      const token = String(data?.token ?? '')
+      if (!token) {
+        throw new Error('Invalid login')
+      }
+
+      window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token)
+      setAuthToken(token)
+      setLoginError('')
+      setLoginPassword('')
+    } catch {
+      setLoginError('Invalid login')
+    } finally {
+      setLoggingIn(false)
+    }
+  }
+
+  const handleLogout = () => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY)
+    }
+    setAuthToken('')
+    setLoginPassword('')
+    setLoginError('')
+  }
+
   const loadData = async (overrides = null) => {
     setLoading(true)
     setLoadingMoreOrders(true)
@@ -337,11 +408,16 @@ function App() {
   }
 
   useEffect(() => {
+    if (!authToken) {
+      setLoading(false)
+      return
+    }
     loadData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [authToken])
 
   useEffect(() => {
+    if (!authToken) return
     if (!focusReloadInitializedRef.current) {
       focusReloadInitializedRef.current = true
       return
@@ -350,7 +426,7 @@ function App() {
       loadData()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusOnSelected, activeTab])
+  }, [focusOnSelected, activeTab, authToken])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -396,11 +472,12 @@ function App() {
   }
 
   useEffect(() => {
+    if (!authToken) return
     if (activeTab === 'CONTRACTORS') {
       loadContractors()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab])
+  }, [activeTab, authToken])
 
   const formatter = useMemo(
     () =>
@@ -534,12 +611,13 @@ function App() {
   }
 
   useEffect(() => {
+    if (!authToken) return
     if (activeTab === 'CONTRACTORS' && selectedContractorId) {
       loadContractorProfile(selectedContractorId)
       loadContractorDocuments(selectedContractorId)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, selectedContractorId, contractors])
+  }, [activeTab, selectedContractorId, contractors, authToken])
 
   const uploadContractorDocument = async (contractorId, documentType, file) => {
     if (!contractorId || !file) return
@@ -1185,6 +1263,57 @@ function App() {
     importInputRef.current?.click()
   }
 
+  const handleManualExpenseChange = (field, value) => {
+    setManualExpenseForm((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const handleManualExpenseSave = async () => {
+    setSavingManualExpense(true)
+    setManualExpenseMessage('')
+    setError('')
+    try {
+      const payload = {
+        order_number: manualExpenseForm.order_number.trim() || null,
+        contractor_name_raw: manualExpenseForm.contractor_name_raw.trim() || null,
+        client_name_raw: manualExpenseForm.client_name_raw.trim() || null,
+        county: manualExpenseForm.county.trim() || null,
+        city: manualExpenseForm.city.trim() || null,
+        address: manualExpenseForm.address.trim() || null,
+        zip: manualExpenseForm.zip.trim() || null,
+        client_pay_amount: manualExpenseForm.client_pay_amount.trim() || null,
+        contractor_pay_amount: manualExpenseForm.contractor_pay_amount.trim() || null,
+        submitted_to_client_at: manualExpenseForm.submitted_to_client_at || null,
+        due_date: manualExpenseForm.due_date || null,
+        notes: manualExpenseForm.notes.trim() || null,
+      }
+
+      const response = await fetch('http://localhost:5090/api/orders/manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        let message = 'Failed to add manual expense'
+        try {
+          const data = await response.json()
+          message = data?.detail || data?.error?.message || message
+        } catch {
+          // ignore non-json response
+        }
+        throw new Error(message)
+      }
+
+      await loadData()
+      setManualExpenseForm(createManualExpenseForm())
+      setShowManualExpenseForm(false)
+      setManualExpenseMessage('Manual expense added.')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to add manual expense')
+    } finally {
+      setSavingManualExpense(false)
+    }
+  }
+
   const handleImportFileChange = async (event) => {
     const file = event.target.files?.[0]
     if (!file) return
@@ -1598,6 +1727,71 @@ function App() {
         }
         body { overflow: hidden; }
       `}</style>
+      {!authToken ? (
+        <div
+          style={{
+            width: '100%',
+            height: '100vh',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: '#2f343c',
+            padding: 16,
+            boxSizing: 'border-box',
+            fontFamily: 'sans-serif',
+          }}
+        >
+          <form
+            onSubmit={handleLogin}
+            style={{
+              width: '100%',
+              maxWidth: 360,
+              display: 'grid',
+              gap: 12,
+              padding: 24,
+              borderRadius: 12,
+              border: '1px solid #5b6270',
+              backgroundColor: '#3a414b',
+              color: '#f3f4f6',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+            }}
+          >
+            <div style={{ fontSize: 20, fontWeight: 600 }}>Login</div>
+            <input
+              type="text"
+              placeholder="Username"
+              value={loginUsername}
+              onChange={(e) => setLoginUsername(e.target.value)}
+              autoComplete="username"
+              style={{ height: 38, padding: '0 10px', fontSize: 14 }}
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              value={loginPassword}
+              onChange={(e) => setLoginPassword(e.target.value)}
+              autoComplete="current-password"
+              style={{ height: 38, padding: '0 10px', fontSize: 14 }}
+            />
+            {loginError ? <div style={{ color: '#fca5a5', fontSize: 14 }}>{loginError}</div> : null}
+            <button
+              type="submit"
+              disabled={loggingIn}
+              style={{
+                height: 38,
+                border: '1px solid #5b6270',
+                borderRadius: 8,
+                backgroundColor: '#4a5361',
+                color: '#f3f4f6',
+                cursor: loggingIn ? 'default' : 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              {loggingIn ? 'Logging in...' : 'Login'}
+            </button>
+          </form>
+        </div>
+      ) : (
       <div
         ref={containerRef}
         style={{
@@ -1622,34 +1816,52 @@ function App() {
           color: '#f3f4f6',
           flex: '0 0 auto',
           gap: 10,
+          justifyContent: 'space-between',
         }}
       >
-        <svg
-          width="28"
-          height="28"
-          viewBox="0 0 28 28"
-          aria-hidden="true"
-          style={{ flex: '0 0 auto' }}
-        >
-          <g stroke="#e5e7eb" fill="none" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="14" y1="1.4" x2="14" y2="3.2" strokeWidth="1.2" />
-            <line x1="20.8" y1="3.8" x2="20.0" y2="5.4" strokeWidth="1.2" />
-            <line x1="25.3" y1="9.4" x2="23.6" y2="10.1" strokeWidth="1.2" />
-            <line x1="25.2" y1="16.0" x2="23.5" y2="15.4" strokeWidth="1.2" />
-            <line x1="20.6" y1="21.8" x2="19.8" y2="20.2" strokeWidth="1.2" />
-            <line x1="7.4" y1="21.8" x2="8.2" y2="20.2" strokeWidth="1.2" />
-            <line x1="2.8" y1="16.0" x2="4.5" y2="15.4" strokeWidth="1.2" />
-            <line x1="2.7" y1="9.4" x2="4.4" y2="10.1" strokeWidth="1.2" />
-            <line x1="7.2" y1="3.8" x2="8.0" y2="5.4" strokeWidth="1.2" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <svg
+            width="28"
+            height="28"
+            viewBox="0 0 28 28"
+            aria-hidden="true"
+            style={{ flex: '0 0 auto' }}
+          >
+            <g stroke="#e5e7eb" fill="none" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="14" y1="1.4" x2="14" y2="3.2" strokeWidth="1.2" />
+              <line x1="20.8" y1="3.8" x2="20.0" y2="5.4" strokeWidth="1.2" />
+              <line x1="25.3" y1="9.4" x2="23.6" y2="10.1" strokeWidth="1.2" />
+              <line x1="25.2" y1="16.0" x2="23.5" y2="15.4" strokeWidth="1.2" />
+              <line x1="20.6" y1="21.8" x2="19.8" y2="20.2" strokeWidth="1.2" />
+              <line x1="7.4" y1="21.8" x2="8.2" y2="20.2" strokeWidth="1.2" />
+              <line x1="2.8" y1="16.0" x2="4.5" y2="15.4" strokeWidth="1.2" />
+              <line x1="2.7" y1="9.4" x2="4.4" y2="10.1" strokeWidth="1.2" />
+              <line x1="7.2" y1="3.8" x2="8.0" y2="5.4" strokeWidth="1.2" />
 
-            <polygon
-              points="14,4 20,6.8 22.4,13.1 19.5,19 12.8,20.5 7.4,16.4 7,9.6"
-              strokeWidth="1.6"
-            />
-            <circle cx="14" cy="13" r="2.8" strokeWidth="1.4" />
-          </g>
-        </svg>
-        <span style={{ fontSize: 15, fontWeight: 500, letterSpacing: 0.6 }}>SOLTRAE BUSINEZZ</span>
+              <polygon
+                points="14,4 20,6.8 22.4,13.1 19.5,19 12.8,20.5 7.4,16.4 7,9.6"
+                strokeWidth="1.6"
+              />
+              <circle cx="14" cy="13" r="2.8" strokeWidth="1.4" />
+            </g>
+          </svg>
+          <span style={{ fontSize: 15, fontWeight: 500, letterSpacing: 0.6 }}>SOLTRAE BUSINEZZ</span>
+        </div>
+        <button
+          type="button"
+          onClick={handleLogout}
+          style={{
+            border: '1px solid #5b6270',
+            borderRadius: 8,
+            padding: '6px 12px',
+            cursor: 'pointer',
+            backgroundColor: '#3a414b',
+            color: '#f3f4f6',
+            fontWeight: 500,
+          }}
+        >
+          Logout
+        </button>
       </div>
 
       <div style={{ display: 'flex', gap: 8, padding: '0 12px', flex: '0 0 auto' }}>
@@ -2000,6 +2212,16 @@ function App() {
               </button>
               <button
                 type="button"
+                onClick={() => {
+                  setShowManualExpenseForm((prev) => !prev)
+                  setManualExpenseMessage('')
+                }}
+                style={gridActionButtonStyle}
+              >
+                + Expense
+              </button>
+              <button
+                type="button"
                 onClick={handleImportButtonClick}
                 disabled={importing}
                 style={gridActionButtonStyle}
@@ -2063,7 +2285,149 @@ function App() {
               />
               {importMessage && <span>{importMessage}</span>}
               {bulkUpdateMessage && <span>{bulkUpdateMessage}</span>}
+              {manualExpenseMessage && <span>{manualExpenseMessage}</span>}
             </div>
+
+            {showManualExpenseForm && (
+              <div
+                style={{
+                  border: '1px solid #5b6270',
+                  borderRadius: 10,
+                  padding: 12,
+                  marginBottom: 10,
+                  backgroundColor: '#323843',
+                  display: 'grid',
+                  gap: 10,
+                }}
+              >
+                <div style={{ fontWeight: 600 }}>Add Manual Expense</div>
+                <div
+                  style={{
+                    display: 'grid',
+                    gap: 10,
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                  }}
+                >
+                  <label style={{ display: 'grid', gap: 4 }}>
+                    <span>Order Number</span>
+                    <input
+                      type="text"
+                      value={manualExpenseForm.order_number}
+                      onChange={(e) => handleManualExpenseChange('order_number', e.target.value)}
+                    />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4 }}>
+                    <span>Contractor</span>
+                    <input
+                      type="text"
+                      value={manualExpenseForm.contractor_name_raw}
+                      onChange={(e) => handleManualExpenseChange('contractor_name_raw', e.target.value)}
+                    />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4 }}>
+                    <span>Client</span>
+                    <input
+                      type="text"
+                      value={manualExpenseForm.client_name_raw}
+                      onChange={(e) => handleManualExpenseChange('client_name_raw', e.target.value)}
+                    />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4 }}>
+                    <span>County</span>
+                    <input
+                      type="text"
+                      value={manualExpenseForm.county}
+                      onChange={(e) => handleManualExpenseChange('county', e.target.value)}
+                    />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4 }}>
+                    <span>City</span>
+                    <input
+                      type="text"
+                      value={manualExpenseForm.city}
+                      onChange={(e) => handleManualExpenseChange('city', e.target.value)}
+                    />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4 }}>
+                    <span>Address</span>
+                    <input
+                      type="text"
+                      value={manualExpenseForm.address}
+                      onChange={(e) => handleManualExpenseChange('address', e.target.value)}
+                    />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4 }}>
+                    <span>Zip</span>
+                    <input
+                      type="text"
+                      value={manualExpenseForm.zip}
+                      onChange={(e) => handleManualExpenseChange('zip', e.target.value)}
+                    />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4 }}>
+                    <span>Client Pay</span>
+                    <input
+                      type="text"
+                      value={manualExpenseForm.client_pay_amount}
+                      onChange={(e) => handleManualExpenseChange('client_pay_amount', e.target.value)}
+                    />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4 }}>
+                    <span>Contractor Pay</span>
+                    <input
+                      type="text"
+                      value={manualExpenseForm.contractor_pay_amount}
+                      onChange={(e) => handleManualExpenseChange('contractor_pay_amount', e.target.value)}
+                    />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4 }}>
+                    <span>Submitted To Client</span>
+                    <input
+                      type="datetime-local"
+                      value={manualExpenseForm.submitted_to_client_at}
+                      onChange={(e) => handleManualExpenseChange('submitted_to_client_at', e.target.value)}
+                    />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4 }}>
+                    <span>Due Date</span>
+                    <input
+                      type="date"
+                      value={manualExpenseForm.due_date}
+                      onChange={(e) => handleManualExpenseChange('due_date', e.target.value)}
+                    />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, gridColumn: '1 / -1' }}>
+                    <span>Notes</span>
+                    <textarea
+                      value={manualExpenseForm.notes}
+                      onChange={(e) => handleManualExpenseChange('notes', e.target.value)}
+                      rows={3}
+                    />
+                  </label>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={handleManualExpenseSave}
+                    disabled={savingManualExpense}
+                    style={gridActionButtonStyle}
+                  >
+                    {savingManualExpense ? 'Saving...' : 'Save'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowManualExpenseForm(false)
+                      setManualExpenseForm(createManualExpenseForm())
+                    }}
+                    disabled={savingManualExpense}
+                    style={gridActionButtonStyle}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div
               ref={ordersGridRef}
@@ -2095,6 +2459,12 @@ function App() {
                       }}
                     >
                       #
+                    </th>
+                    <th
+                      onClick={() => handleSort('order_number')}
+                      style={{ border: '1px solid #5b6270', padding: '5px 10px', fontWeight: 600, position: 'sticky', top: 0, zIndex: 2, backgroundColor: '#323843', cursor: 'pointer', userSelect: 'none' }}
+                    >
+                      Order Number{getSortIndicator('order_number')}
                     </th>
                     <th
                       onClick={() => handleSort('contractor_name_raw')}
@@ -2191,6 +2561,9 @@ function App() {
                           />
                         </td>
                         <td style={{ border: '1px solid #5b6270', padding: '5px 10px' }}>{index + 1}</td>
+                        <td style={{ border: '1px solid #5b6270', padding: '5px 10px' }}>
+                          {order.order_number ?? ''}
+                        </td>
                         <td style={{ border: '1px solid #5b6270', padding: '5px 10px' }}>
                           {order.contractor_name_raw ?? ''}
                         </td>
@@ -3113,7 +3486,8 @@ function App() {
           {activeTab === 'COMPANY' && <div>Company Panel</div>}
         </div>
       )}
-      </div>
+    </div>
+      )}
     </>
   )
 }

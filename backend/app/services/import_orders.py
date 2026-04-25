@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import os
 from datetime import date, datetime, time, timedelta
@@ -71,6 +72,21 @@ DECIMAL_FIELDS = {"client_pay_amount", "latitude", "longitude"}
 BOOLEAN_FIELDS = {"vacant", "photo_required"}
 EXCEL_SERIAL_MIN = 30000
 EXCEL_SERIAL_MAX = 80000
+ALTERNATE_HEADER_CANDIDATES = {
+    "city",
+    "state",
+    "zip",
+    "county",
+    "countyname",
+    "client",
+    "inspector",
+    "ordernumber",
+    "order number",
+    "submittedtoclient",
+    "source",
+    "clientpay",
+    "inspectorpay",
+}
 
 
 def _excel_serial_to_datetime(serial: float) -> datetime:
@@ -181,7 +197,7 @@ def parse_datetime(value: Any) -> datetime | None:
     raise ValueError(f"invalid date value: {value}")
 
 
-def _find_header_row(sheet: Any) -> tuple[int, dict[str, int]]:
+def _find_header_row(sheet: Any) -> tuple[int, dict[str, int], bool]:
     max_rows_to_scan = 50
     scanned_first_cells: list[str] = []
 
@@ -201,7 +217,16 @@ def _find_header_row(sheet: Any) -> tuple[int, dict[str, int]]:
                 for idx, header in enumerate(normalized)
                 if header
             }
-            return row_idx, header_map
+            return row_idx, header_map, False
+
+        alternate_header_matches = len(set(normalized_lower) & ALTERNATE_HEADER_CANDIDATES)
+        if "address" in normalized_lower and alternate_header_matches >= 2:
+            header_map = {
+                _header_lookup_key(header): idx
+                for idx, header in enumerate(normalized)
+                if header
+            }
+            return row_idx, header_map, True
 
     raise ValueError(
         f"header row not found after scanning {max_rows_to_scan} rows; "
@@ -234,20 +259,50 @@ def _detect_file_extension(filename: str | None) -> str:
     return os.path.splitext(filename)[1].lower()
 
 
-def _load_rows_from_xlsx(file_obj: BinaryIO) -> tuple[list[tuple[int, tuple[Any, ...]]], dict[str, int]]:
+def _load_rows_from_xlsx(
+    file_obj: BinaryIO,
+) -> tuple[list[tuple[int, tuple[Any, ...]]], dict[str, int], bool]:
     workbook = load_workbook(file_obj, read_only=True, data_only=True)
     try:
         sheet = workbook[workbook.sheetnames[0]]
-        header_row_idx, header_map = _find_header_row(sheet)
+        header_row_idx, header_map, is_alternate_header = _find_header_row(sheet)
         rows: list[tuple[int, tuple[Any, ...]]] = []
         for excel_row_idx, row in enumerate(
             sheet.iter_rows(min_row=header_row_idx + 1, values_only=True),
             start=header_row_idx + 1,
         ):
+            if row is None or not any(cell is not None and str(cell).strip() != "" for cell in row):
+                continue
             rows.append((excel_row_idx, row))
-        return rows, header_map
+        return rows, header_map, is_alternate_header
     finally:
         workbook.close()
+
+
+def _build_generated_order_uid(
+    *,
+    order_number: str | None,
+    address: str | None,
+    city: str | None,
+    state: str | None,
+    zip_code: str | None,
+    submitted_to_client_at: datetime | None,
+) -> str:
+    if order_number:
+        seed_parts = ["order_number", order_number.strip()]
+    else:
+        submitted_value = submitted_to_client_at.isoformat() if submitted_to_client_at else ""
+        seed_parts = [
+            "address_bundle",
+            address or "",
+            city or "",
+            state or "",
+            zip_code or "",
+            submitted_value,
+        ]
+
+    digest = hashlib.sha256("|".join(seed_parts).encode("utf-8")).hexdigest()
+    return f"generated-{digest}"
 
 
 def _load_rows_from_csv(file_obj: BinaryIO) -> tuple[list[tuple[int, tuple[Any, ...]]], dict[str, int]]:
@@ -285,11 +340,12 @@ def _load_rows_from_csv(file_obj: BinaryIO) -> tuple[list[tuple[int, tuple[Any, 
 
 def import_orders_file(db: Session, file_obj: BinaryIO, filename: str | None) -> ImportOrdersResponse:
     extension = _detect_file_extension(filename)
+    is_alternate_header = False
     file_obj.seek(0)
     if extension == ".csv":
         source_rows, header_map = _load_rows_from_csv(file_obj)
     elif extension in {".xlsx", ".xls"}:
-        source_rows, header_map = _load_rows_from_xlsx(file_obj)
+        source_rows, header_map, is_alternate_header = _load_rows_from_xlsx(file_obj)
     else:
         raise ValueError("unsupported file type")
 
@@ -319,26 +375,9 @@ def import_orders_file(db: Session, file_obj: BinaryIO, filename: str | None) ->
             order_uid_value = _get_by_header(row, header_map, "ID")
             order_uid = _normalize_string(order_uid_value)
 
-            if not order_uid:
-                error_count += 1
-                errors.append(
-                    ImportOrderRowError(
-                        row=excel_row_idx,
-                        order_uid=None,
-                        message="missing required field: ID",
-                    )
-                )
-                continue
-
-            existing = db.query(Order.id).filter(Order.order_uid == order_uid).first()
-            if existing is not None:
-                duplicate_count += 1
-                continue
-
             try:
                 order_data: dict[str, Any] = {
                     "import_batch_id": import_batch.id,
-                    "order_uid": order_uid,
                     "client_name_raw": _coerce_field(
                         "client_name_raw",
                         _get_by_header(row, header_map, "Source"),
@@ -352,6 +391,45 @@ def import_orders_file(db: Session, file_obj: BinaryIO, filename: str | None) ->
                         continue
                     raw_value = _get_by_header(row, header_map, header_name)
                     order_data[field_name] = _coerce_field(field_name, raw_value)
+
+                order_number = (
+                    _get_by_header(row, header_map, "OrderNumber")
+                    or _get_by_header(row, header_map, "order_number")
+                    or _get_by_header(row, header_map, "Order Number")
+                )
+                order_data["order_number"] = str(order_number).strip() if order_number else None
+                if not order_uid and is_alternate_header:
+                    order_uid = _build_generated_order_uid(
+                        order_number=order_data["order_number"],
+                        address=order_data.get("address"),
+                        city=order_data.get("city"),
+                        state=order_data.get("state"),
+                        zip_code=order_data.get("zip"),
+                        submitted_to_client_at=order_data.get("submitted_to_client_at"),
+                    )
+
+                if not order_uid:
+                    error_count += 1
+                    errors.append(
+                        ImportOrderRowError(
+                            row=excel_row_idx,
+                            order_uid=None,
+                            message="missing required field: ID",
+                        )
+                    )
+                    continue
+
+                order_data["order_uid"] = order_uid
+
+                existing = None
+                if order_data.get("order_number"):
+                    existing = db.query(Order).filter(Order.order_number == order_data["order_number"]).first()
+                else:
+                    existing = db.query(Order).filter(Order.order_uid == order_uid).first()
+
+                if existing:
+                    duplicate_count += 1
+                    continue
 
                 db.add(Order(**order_data))
                 inserted_count += 1
