@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+const API_BASE = import.meta.env.VITE_API_URL || '${API_BASE}'
+
 function App() {
   const AUTH_TOKEN_STORAGE_KEY = 'onsight_auth_token'
   const ZONES_STORAGE_KEY = 'onsight_zones_v1'
@@ -271,7 +273,7 @@ function App() {
     setLoggingIn(true)
     setLoginError('')
     try {
-      const response = await fetch('http://localhost:5090/api/auth/login', {
+      const response = await fetch('${API_BASE}/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -325,8 +327,8 @@ function App() {
       ordersParams.set('offset', '0')
       const summaryParams = new URLSearchParams(params)
       const [ordersRes, summaryRes] = await Promise.all([
-        fetch(`http://localhost:5090/api/orders?${ordersParams.toString()}`),
-        fetch(`http://localhost:5090/api/orders/summary?${summaryParams.toString()}`),
+        fetch(`${API_BASE}/api/orders?${ordersParams.toString()}`),
+        fetch(`${API_BASE}/api/orders/summary?${summaryParams.toString()}`),
       ])
 
       if (!ordersRes.ok || !summaryRes.ok) {
@@ -362,7 +364,7 @@ function App() {
       ordersParams.set('limit', String(ORDERS_PAGE_LIMIT))
       ordersParams.set('offset', String(ordersOffset))
 
-      const response = await fetch(`http://localhost:5090/api/orders?${ordersParams.toString()}`)
+      const response = await fetch(`${API_BASE}/api/orders?${ordersParams.toString()}`)
       if (!response.ok) {
         throw new Error('Failed to load more orders')
       }
@@ -448,7 +450,7 @@ function App() {
     setContractorsLoading(true)
     setContractorsError('')
     try {
-      const response = await fetch('http://localhost:5090/api/contractors')
+      const response = await fetch('${API_BASE}/api/contractors')
       if (!response.ok) {
         throw new Error('Failed to load contractors')
       }
@@ -575,7 +577,7 @@ function App() {
     setContractorProfileError('')
     setContractorProfileMessage('')
     try {
-      const response = await fetch(`http://localhost:5090/api/contractors/${contractorId}/profile`)
+      const response = await fetch(`${API_BASE}/api/contractors/${contractorId}/profile`)
       if (!response.ok) {
         throw new Error('Failed to load contractor profile')
       }
@@ -597,7 +599,7 @@ function App() {
     setContractorDocumentsMessage('')
     setContractorDocumentsError('')
     try {
-      const response = await fetch(`http://localhost:5090/api/contractors/${contractorId}/documents`)
+      const response = await fetch(`${API_BASE}/api/contractors/${contractorId}/documents`)
       if (!response.ok) {
         throw new Error('Failed to load contractor documents')
       }
@@ -628,7 +630,7 @@ function App() {
       const formData = new FormData()
       formData.append('file', file)
       formData.append('document_type', documentType)
-      const response = await fetch(`http://localhost:5090/api/contractors/${contractorId}/documents`, {
+      const response = await fetch(`${API_BASE}/api/contractors/${contractorId}/documents`, {
         method: 'POST',
         body: formData,
       })
@@ -875,7 +877,7 @@ function App() {
     try {
       const results = await Promise.allSettled(
         updates.map(async (item) => {
-          const res = await fetch(`http://localhost:5090/api/orders/${item.orderId}/amounts`, {
+          const res = await fetch(`${API_BASE}/api/orders/${item.orderId}/amounts`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(item.payload),
@@ -1080,7 +1082,7 @@ function App() {
     try {
       const body = buildFilters()
 
-      const res = await fetch('http://localhost:5090/api/payroll/batches', {
+      const res = await fetch('${API_BASE}/api/payroll/batches', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -1107,7 +1109,7 @@ function App() {
     setError('')
     setPayrollMessage('')
     try {
-      const res = await fetch(`http://localhost:5090/api/payroll/batches/${batchId}/confirm`, {
+      const res = await fetch(`${API_BASE}/api/payroll/batches/${batchId}/confirm`, {
         method: 'POST',
       })
       if (!res.ok) {
@@ -1159,7 +1161,7 @@ function App() {
   const togglePaidInStatus = async (orderId, paid) => {
     setError('')
     try {
-      const res = await fetch(`http://localhost:5090/api/orders/${orderId}/paid_in`, {
+      const res = await fetch(`${API_BASE}/api/orders/${orderId}/paid_in`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paid }),
@@ -1176,7 +1178,7 @@ function App() {
   const togglePaidOutStatus = async (orderId, paid) => {
     setError('')
     try {
-      const res = await fetch(`http://localhost:5090/api/orders/${orderId}/paid_out`, {
+      const res = await fetch(`${API_BASE}/api/orders/${orderId}/paid_out`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paid }),
@@ -1287,7 +1289,7 @@ function App() {
         notes: manualExpenseForm.notes.trim() || null,
       }
 
-      const response = await fetch('http://localhost:5090/api/orders/manual', {
+      const response = await fetch('${API_BASE}/api/orders/manual', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -1324,7 +1326,7 @@ function App() {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      const response = await fetch('http://localhost:5090/api/import/orders', {
+      const response = await fetch('${API_BASE}/api/import/orders', {
         method: 'POST',
         body: formData,
       })
@@ -1359,7 +1361,7 @@ function App() {
       await Promise.all(
         selectedOrderIds.map(async (orderId) => {
           const endpoint = statusType === 'paid_out' ? 'paid_out' : 'paid_in'
-          const res = await fetch(`http://localhost:5090/api/orders/${orderId}/${endpoint}`, {
+          const res = await fetch(`${API_BASE}/api/orders/${orderId}/${endpoint}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ paid }),
@@ -1427,7 +1429,7 @@ function App() {
     setBulkUpdateMessage('')
     setError('')
     try {
-      const response = await fetch(`http://localhost:5090${endpoint}`, {
+      const response = await fetch(`${API_BASE}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ order_ids: orderIds }),
@@ -1497,7 +1499,7 @@ function App() {
         external_user_id: null,
         active: newContractorForm.active,
       }
-      const response = await fetch('http://localhost:5090/api/contractors', {
+      const response = await fetch('${API_BASE}/api/contractors', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -1537,7 +1539,7 @@ function App() {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      const response = await fetch('http://localhost:5090/api/contractors/onboarding/parse', {
+      const response = await fetch('${API_BASE}/api/contractors/onboarding/parse', {
         method: 'POST',
         body: formData,
       })
@@ -1618,7 +1620,7 @@ function App() {
     setContractorProfileError('')
     setContractorProfileMessage('')
     try {
-      const response = await fetch(`http://localhost:5090/api/contractors/${selectedContractorId}/profile`, {
+      const response = await fetch(`${API_BASE}/api/contractors/${selectedContractorId}/profile`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -1687,7 +1689,7 @@ function App() {
       if (shouldBulkApply) {
         const results = await Promise.allSettled(
           selectedOrderIds.map(async (orderId) => {
-            const response = await fetch(`http://localhost:5090/api/orders/${orderId}/amounts`, {
+            const response = await fetch(`${API_BASE}/api/orders/${orderId}/amounts`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(payload),
@@ -1700,7 +1702,7 @@ function App() {
         const okCount = results.filter((r) => r.status === 'fulfilled').length
         setBulkUpdateMessage(`Updated ${okCount} orders`)
       } else {
-        const response = await fetch(`http://localhost:5090/api/orders/${editingCell.orderId}/amounts`, {
+        const response = await fetch(`${API_BASE}/api/orders/${editingCell.orderId}/amounts`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -3318,7 +3320,7 @@ function App() {
                                   </td>
                                   <td style={{ padding: '6px 8px', borderBottom: '1px solid #4b5360' }}>
                                     <a
-                                      href={`http://localhost:5090/api/documents/${doc.id}/download`}
+                                      href={`${API_BASE}/api/documents/${doc.id}/download`}
                                       target="_blank"
                                       rel="noreferrer"
                                       style={{ color: '#93c5fd' }}
