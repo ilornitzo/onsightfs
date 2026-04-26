@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-const API_BASE = import.meta.env.VITE_API_URL || '${API_BASE}'
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5090'
 
 function App() {
   const AUTH_TOKEN_STORAGE_KEY = 'onsight_auth_token'
@@ -273,7 +273,7 @@ function App() {
     setLoggingIn(true)
     setLoginError('')
     try {
-      const response = await fetch('${API_BASE}/api/auth/login', {
+      const response = await fetch(`${API_BASE}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -450,7 +450,7 @@ function App() {
     setContractorsLoading(true)
     setContractorsError('')
     try {
-      const response = await fetch('${API_BASE}/api/contractors')
+      const response = await fetch(`${API_BASE}/api/contractors`)
       if (!response.ok) {
         throw new Error('Failed to load contractors')
       }
@@ -1082,7 +1082,7 @@ function App() {
     try {
       const body = buildFilters()
 
-      const res = await fetch('${API_BASE}/api/payroll/batches', {
+      const res = await fetch(`${API_BASE}/api/payroll/batches`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -1289,7 +1289,7 @@ function App() {
         notes: manualExpenseForm.notes.trim() || null,
       }
 
-      const response = await fetch('${API_BASE}/api/orders/manual', {
+      const response = await fetch(`${API_BASE}/api/orders/manual`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -1326,7 +1326,7 @@ function App() {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      const response = await fetch('${API_BASE}/api/import/orders', {
+      const response = await fetch(`${API_BASE}/api/import/orders`, {
         method: 'POST',
         body: formData,
       })
@@ -1499,7 +1499,7 @@ function App() {
         external_user_id: null,
         active: newContractorForm.active,
       }
-      const response = await fetch('${API_BASE}/api/contractors', {
+      const response = await fetch(`${API_BASE}/api/contractors`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -1539,7 +1539,7 @@ function App() {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      const response = await fetch('${API_BASE}/api/contractors/onboarding/parse', {
+      const response = await fetch(`${API_BASE}/api/contractors/onboarding/parse`, {
         method: 'POST',
         body: formData,
       })
